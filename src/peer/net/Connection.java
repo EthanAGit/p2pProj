@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class Connection implements Runnable {
@@ -54,21 +55,138 @@ public class Connection implements Runnable {
     }
     @Override public void run() {
         try (var in = sock.getInputStream(); var out = sock.getOutputStream()) {
+            // Socket options: lower latency and avoid infinite read hangs
             sock.setTcpNoDelay(true);
             sock.setSoTimeout(15000);
-    
+
+            // Wrap once so send/recv helpers can use them
+            din = new DataInputStream(in);
+            dout = new DataOutputStream(out);
+
+            // ---- Handshake (both sides do "send then read" to avoid deadlock) ----
             int my = Integer.parseInt(myId);
-    
-            // 1) SEND then 2) READ the 32-byte handshake
             sendHandshake(out, my);
             int remote = recvHandshake(in);
-    
             System.out.println("[" + myId + "] handshake OK with peer " + remote +
                                " via " + sock.getRemoteSocketAddress());
-    
-            // keep the connection alive for now
-            while (!sock.isClosed()) Thread.sleep(1000);
+
+           
+            sendInterested();
+            
+            // ---- Enter the message loop: parse frames and call empty handlers ----
+            readLoop();  // returns only on EOF/IOException
         } catch (Exception e) {
             System.out.println("[" + myId + "] connection closed: " + e.getMessage());
         }
-    }}
+    }
+    private DataInputStream din;
+    private DataOutputStream dout;
+    private static final byte MSG_CHOKE           = 0;
+    private static final byte MSG_UNCHOKE         = 1;
+    private static final byte MSG_INTERESTED      = 2;
+    private static final byte MSG_NOT_INTERESTED  = 3;
+    private static final byte MSG_HAVE            = 4;
+    private static final byte MSG_BITFIELD        = 5;
+    private static final byte MSG_REQUEST         = 6;
+    private static final byte MSG_PIECE           = 7;
+
+    private static String typeName(int t) {
+        return switch (t) {
+            case 0 -> "choke";
+            case 1 -> "unchoke";
+            case 2 -> "interested";
+            case 3 -> "not_interested";
+            case 4 -> "have";
+            case 5 -> "bitfield";
+            case 6 -> "request";
+            case 7 -> "piece";
+            default -> "unknown(" + t + ")";
+        };
+    }
+    private void sendFrame(byte type, byte[] payload) throws IOException {
+        int payloadLen = (payload == null) ? 0 : payload.length;
+        int len = 1 + payloadLen;       // type + payload
+        dout.writeInt(len);             // big-endian 4-byte length
+        dout.writeByte(type);           // 1-byte message type
+        if (payloadLen > 0) dout.write(payload);
+        System.out.printf("[%s] → %s (%d bytes payload)%n",
+        myId, typeName(type), (payload == null ? 0 : payload.length));
+        dout.flush();
+    }
+    public void sendChoke()            throws IOException { sendFrame(MSG_CHOKE, null); }
+    public void sendUnchoke()          throws IOException { sendFrame(MSG_UNCHOKE, null); }
+    public void sendInterested()       throws IOException { sendFrame(MSG_INTERESTED, null); }
+    public void sendNotInterested()    throws IOException { sendFrame(MSG_NOT_INTERESTED, null); }
+
+    /** have(index) — payload is a 4-byte piece index (big-endian) */
+    public void sendHave(int pieceIndex) throws IOException {
+        ByteBuffer bb = ByteBuffer.allocate(4);
+        bb.putInt(pieceIndex);
+        sendFrame(MSG_HAVE, bb.array());
+    }
+
+    /** bitfield(raw bytes) — payload is your bitfield as a packed byte array */
+    public void sendBitfield(byte[] bitfield) throws IOException {
+        sendFrame(MSG_BITFIELD, bitfield);
+    }
+
+    /** request(index) — payload is a 4-byte piece index (big-endian) */
+    public void sendRequest(int pieceIndex) throws IOException {
+        ByteBuffer bb = ByteBuffer.allocate(4);
+        bb.putInt(pieceIndex);
+        sendFrame(MSG_REQUEST, bb.array());
+    }
+
+    /** piece(index + data) — payload is 4-byte index followed by raw piece bytes */
+    public void sendPiece(int pieceIndex, byte[] data) throws IOException {
+        ByteBuffer bb = ByteBuffer.allocate(4 + data.length);
+        bb.putInt(pieceIndex);
+        bb.put(data);
+        sendFrame(MSG_PIECE, bb.array());
+    }
+    private void readLoop() throws IOException {
+        while (true) {
+            int len  = din.readInt();              // number of bytes after this field
+            int type = din.readUnsignedByte();     // 0..255
+            int payloadLen = len - 1;              // remaining after the 1-byte type
+            byte[] payload = (payloadLen > 0) ? new byte[payloadLen] : null;
+            System.out.printf("[%s] ← %s (%d bytes payload)%n",
+            myId, typeName(type), payloadLen);
+            if (payloadLen > 0) din.readFully(payload);
+
+            switch (type) {
+                case MSG_CHOKE           -> onChoke();
+                case MSG_UNCHOKE         -> onUnchoke();
+                case MSG_INTERESTED      -> onInterested();
+                case MSG_NOT_INTERESTED  -> onNotInterested();
+                case MSG_HAVE -> {
+                    int idx = ByteBuffer.wrap(payload).getInt(); // big-endian by default
+                    onHave(idx);
+                }
+                case MSG_BITFIELD        -> onBitfield(payload);
+                case MSG_REQUEST -> {
+                    int idx = ByteBuffer.wrap(payload).getInt();
+                    onRequest(idx);
+                }
+                case MSG_PIECE -> {
+                    ByteBuffer bb = ByteBuffer.wrap(payload);
+                    int idx = bb.getInt();
+                    byte[] data = new byte[bb.remaining()];
+                    bb.get(data);
+                    onPiece(idx, data);
+                }
+                default -> throw new IOException("Unknown msg type: " + type);
+            }
+        }
+    }
+
+    // ------------------------ Stub handlers (no behavior yet) ------------------------
+    private void onChoke() {}
+    private void onUnchoke() {}
+    private void onInterested() {}
+    private void onNotInterested() {}
+    private void onHave(int pieceIndex) {}
+    private void onBitfield(byte[] bitfield) {}
+    private void onRequest(int pieceIndex) {}
+    private void onPiece(int pieceIndex, byte[] data) {}
+}
