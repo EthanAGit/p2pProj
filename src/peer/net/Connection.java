@@ -23,6 +23,11 @@ public class Connection implements Runnable {
     // ===================== static, per-peer-process state =====================
 
     // All live connections in this JVM (i.e., this peer process)
+    // stats just for debugging scheduler behaviour
+    private int sentChokes = 0;
+    private int sentUnchokes = 0;
+    private int recvChokes = 0;
+    private int recvUnchokes = 0;
     private static final List<Connection> ALL =
             new CopyOnWriteArrayList<>();
 
@@ -226,15 +231,20 @@ public class Connection implements Runnable {
 
     // Change choke status and send control message if it changed
     private void setChoked(boolean choke) {
-        if (iChokeNeighbor == choke) return;  // no change
-        iChokeNeighbor = choke;
-         System.out.println("[" + myId + "] " +
+    if (iChokeNeighbor == choke) return;  // no change
+    iChokeNeighbor = choke;
+
+    if (choke) sentChokes++; else sentUnchokes++;
+
+    System.out.println("[" + myId + "] " +
         (choke ? "CHOKING" : "UNCHOKING") +
         " peer " + remotePeerId);
-        try {
-            if (choke) sendChoke(); else sendUnchoke();
-        } catch (IOException ignored) {}
-    }
+
+    try {
+        if (choke) sendChoke(); else sendUnchoke();
+    } catch (IOException ignored) {}
+}
+
 
     // ===================== handshake helpers =====================
 
@@ -292,6 +302,9 @@ public class Connection implements Runnable {
         } catch (Exception e) {
             System.out.println("[" + myId + "] connection closed: " + e.getMessage());
         } finally {
+            System.out.printf("[%s] stats with peer %d: sentChoke=%d sentUnchoke=%d recvChoke=%d recvUnchoke=%d%n",
+            myId, remotePeerId, sentChokes, sentUnchokes, recvChokes, recvUnchokes);
+    
             ALL.remove(this);
         }
     }
@@ -427,11 +440,13 @@ public class Connection implements Runnable {
     // ===================== message handlers =====================
 
     private void onChoke() {
+        recvChokes++;
         amChokedByNeighbor = true;
         awaitingPiece = false;  // any in-flight request won’t arrive
     }
 
     private void onUnchoke() {
+        recvUnchokes++;
         amChokedByNeighbor = false;
         try {
             maybeSendInterest();
@@ -440,9 +455,11 @@ public class Connection implements Runnable {
     }
 
     private void onInterested() {
-        neighborInterestedInMe = true;
-        // Real unchoking is handled by the scheduler threads.
-    }
+    neighborInterestedInMe = true;
+    // Immediately unchoke this peer so they can start downloading.
+    // The scheduler can still re-choke / re-unchoke later.
+    setChoked(false);
+}
 
     private void onNotInterested() {
         neighborInterestedInMe = false;
