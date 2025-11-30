@@ -41,7 +41,12 @@ public class PieceManager {
         if (b < 0 || b >= bits.length) return false;
         return (bits[b] & (1 << off)) != 0;
     }
-
+     public synchronized boolean isComplete() {
+        for (int i = 0; i < numPieces; i++) {
+            if (!have(i)) return false;
+        }
+        return true;
+    }
     private void trimExtraBits() {
         int extra = (myBits.length * 8) - numPieces;
         if (extra > 0) {

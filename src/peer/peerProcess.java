@@ -23,7 +23,11 @@ public class peerProcess {
         List<Config.Peer> earlier = cfg.getPeersBefore(peerId);
         FileManager files = new FileManager(peerId, cfg);
         PieceManager pieces = new PieceManager(cfg.numPieces, me.hasFile);
-
+          peer.net.Connection.initSchedulers(
+                cfg.numberOfPreferredNeighbors,
+                cfg.unchokingInterval,
+                cfg.optimisticUnchokingInterval,
+                pieces);
         // 1) Start the server in its own thread (so it accepts while we also connect out)
         Server server = new Server(me.port, socket -> {
             System.out.println("ACCEPT from " + socket.getRemoteSocketAddress());

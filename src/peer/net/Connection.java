@@ -19,6 +19,7 @@ public class Connection implements Runnable {
     private final peer.piece.PieceManager pieces;
     private byte[] neighborBitfield;           // last bitfield we saw
     private boolean amChokedByNeighbor = true; // until they unchoke us
+    private boolean awaitingPiece = false;   // true = we sent request, waiting for piece
 
    public Connection(Socket sock, String myId, peer.store.FileManager files, peer.piece.PieceManager pieces) {
     this.sock = sock;
@@ -127,6 +128,34 @@ public class Connection implements Runnable {
     public void sendInterested()       throws IOException { sendFrame(MSG_INTERESTED, null); }
     public void sendNotInterested()    throws IOException { sendFrame(MSG_NOT_INTERESTED, null); }
 
+    private void maybeRequestNext() throws IOException {
+    if (amChokedByNeighbor || awaitingPiece || neighborBitfield == null) return;
+    int idx = pieces.nextNeededFrom(neighborBitfield);
+    if (idx >= 0) {
+        sendRequest(idx);
+        awaitingPiece = true;
+    } else {
+        // nothing interesting left from this neighbor
+        sendNotInterested();
+    }
+}
+    private static boolean bitIsSet(byte[] bf, int idx) {
+    if (bf == null) return false;
+    int byteIx = idx >>> 3, bit = 7 - (idx & 7);
+    return byteIx < bf.length && ((bf[byteIx] >>> bit) & 1) == 1;
+    }
+    private static void setBit(byte[] bf, int idx) {
+        if (bf == null) return;
+        int byteIx = idx >>> 3, bit = 7 - (idx & 7);
+        if (byteIx < bf.length) bf[byteIx] = (byte)(bf[byteIx] | (1 << bit));
+    }
+
+    // Decide interest based on neighbor's bitfield
+    private void maybeSendInterest() throws IOException {
+        if (neighborBitfield == null) return;
+        int next = pieces.nextNeededFrom(neighborBitfield);
+        if (next >= 0) sendInterested(); else sendNotInterested();
+    }
     /** have(index) — payload is a 4-byte piece index (big-endian) */
     public void sendHave(int pieceIndex) throws IOException {
         ByteBuffer bb = ByteBuffer.allocate(4);
@@ -190,16 +219,18 @@ public class Connection implements Runnable {
     }
 
     // ------------------------ Stub handlers (no behavior yet) ------------------------
-    private void onChoke() {}
+    private void onChoke() {
+    amChokedByNeighbor = true;
+    awaitingPiece = false;            // any in-flight request won’t arrive
+}
 
     private void onUnchoke() {
     amChokedByNeighbor = false;
-    // Ask for the first piece we need from them
-    if (neighborBitfield == null) return;
-    int idx = pieces.nextNeededFrom(neighborBitfield);
-    if (idx >= 0) {
-        try { sendRequest(idx); } catch (IOException ignored) {}
-    }
+    try {
+        // if we already know what they have, start pulling right away
+        maybeSendInterest();
+        maybeRequestNext();
+    } catch (IOException ignored) {}
 }
 
     private void onInterested() {
@@ -207,16 +238,23 @@ public class Connection implements Runnable {
     try { sendUnchoke(); } catch (IOException ignored) {}
 }
     private void onNotInterested() {}
-    private void onHave(int pieceIndex) {}
+    private void onHave(int pieceIndex) {
+    if (neighborBitfield != null) setBit(neighborBitfield, pieceIndex);
+    if (!pieces.have(pieceIndex)) {
+        try {
+            sendInterested();         // harmless if already interested
+            maybeRequestNext();
+        } catch (IOException ignored) {}
+    }
+}
 
-    private void onBitfield(byte[] bitfield) {
+   private void onBitfield(byte[] bitfield) {
     neighborBitfield = bitfield;
-    // Decide interest: do they have anything I don't?
-    int next = pieces.nextNeededFrom(bitfield);
     try {
-        if (next >= 0) sendInterested();
-        else sendNotInterested();
-    } catch (IOException e) { /* ignore for now */ }
+        maybeSendInterest();          // decide interested/not interested
+        // If they’ve already unchoked us, kick off the first request now
+        if (!amChokedByNeighbor) maybeRequestNext();
+    } catch (IOException ignored) {}
 }
 
     private void onRequest(int pieceIndex) {
@@ -228,23 +266,22 @@ public class Connection implements Runnable {
         // (optional) System.out.println("[" + myId + "] sent piece " + pieceIndex);
     } catch (IOException ignored) {}
 }
+
     private void onPiece(int pieceIndex, byte[] data) {
     try {
-        // Write to disk, mark have, and (optional) request the next one
         files.writePiece(pieceIndex, data);
         pieces.markHave(pieceIndex);
         System.out.println("[" + myId + "] stored piece " + pieceIndex +
                            " (" + data.length + " bytes)");
 
-        // Tell *this neighbor* we now have that piece (you’ll broadcast later)
-        sendHave(pieceIndex);
+        sendHave(pieceIndex);         // notify this neighbor; later you’ll broadcast
 
-        // Request the next needed piece (simple linear strategy for now)
-        if (neighborBitfield != null && !amChokedByNeighbor) {
-            int next = pieces.nextNeededFrom(neighborBitfield);
-            if (next >= 0) sendRequest(next);
-            // else: we're done with this neighbor for now
-        }
+        // We’re no longer waiting—pull the next one if possible
+        awaitingPiece = false;
+        if (pieces.isComplete()) {
+    System.out.println("[" + myId + "] download complete");
+}
+        if (!amChokedByNeighbor) maybeRequestNext();
     } catch (IOException ignored) {}
 }
 }
