@@ -1,0 +1,32 @@
+# Java build
+/out/
+/target/
+/bin/
+/*.class
+**/*.class
+
+# VS Code
+.vscode/
+/.history/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Project runtime data
+peer_*/
+log_peer_*.log
+
+# Local config variants (keep canonical ones if you want)
+# If your cfgs are stable and meant to be versioned, delete these two lines:
+# Common.cfg
+# PeerInfo.cfg
+
+# Big test files
+*.dat
+*.bin
+*.iso
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md

@@ -8,15 +8,24 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import peer.store.FileManager;
+import peer.piece.PieceManager;
+
 
 public class Connection implements Runnable {
     private final Socket sock;
     private final String myId;
+    private final peer.store.FileManager files;
+    private final peer.piece.PieceManager pieces;
+    private byte[] neighborBitfield;           // last bitfield we saw
+    private boolean amChokedByNeighbor = true; // until they unchoke us
 
-    public Connection(Socket sock, String myId) {
-        this.sock = sock;
-        this.myId = myId;
-    }
+   public Connection(Socket sock, String myId, peer.store.FileManager files, peer.piece.PieceManager pieces) {
+    this.sock = sock;
+    this.myId = myId;
+    this.files = files;
+    this.pieces = pieces;
+}
 
     public void start() {
         new Thread(this, "Conn-" + myId + "->" + sock.getRemoteSocketAddress()).start();
@@ -71,7 +80,7 @@ public class Connection implements Runnable {
                                " via " + sock.getRemoteSocketAddress());
 
            
-            sendInterested();
+            sendBitfield(pieces.myBitfield());
             
             // ---- Enter the message loop: parse frames and call empty handlers ----
             readLoop();  // returns only on EOF/IOException
@@ -182,11 +191,60 @@ public class Connection implements Runnable {
 
     // ------------------------ Stub handlers (no behavior yet) ------------------------
     private void onChoke() {}
-    private void onUnchoke() {}
-    private void onInterested() {}
+
+    private void onUnchoke() {
+    amChokedByNeighbor = false;
+    // Ask for the first piece we need from them
+    if (neighborBitfield == null) return;
+    int idx = pieces.nextNeededFrom(neighborBitfield);
+    if (idx >= 0) {
+        try { sendRequest(idx); } catch (IOException ignored) {}
+    }
+}
+
+    private void onInterested() {
+    // Bare-minimum policy: always unchoke anyone who asks (good enough to demo flow)
+    try { sendUnchoke(); } catch (IOException ignored) {}
+}
     private void onNotInterested() {}
     private void onHave(int pieceIndex) {}
-    private void onBitfield(byte[] bitfield) {}
-    private void onRequest(int pieceIndex) {}
-    private void onPiece(int pieceIndex, byte[] data) {}
+
+    private void onBitfield(byte[] bitfield) {
+    neighborBitfield = bitfield;
+    // Decide interest: do they have anything I don't?
+    int next = pieces.nextNeededFrom(bitfield);
+    try {
+        if (next >= 0) sendInterested();
+        else sendNotInterested();
+    } catch (IOException e) { /* ignore for now */ }
+}
+
+    private void onRequest(int pieceIndex) {
+    // Neighbor asked us for pieceIndex — if we have it, read and send it back
+    if (!pieces.have(pieceIndex)) return;
+    try {
+        byte[] data = files.readPiece(pieceIndex);
+        sendPiece(pieceIndex, data);
+        // (optional) System.out.println("[" + myId + "] sent piece " + pieceIndex);
+    } catch (IOException ignored) {}
+}
+    private void onPiece(int pieceIndex, byte[] data) {
+    try {
+        // Write to disk, mark have, and (optional) request the next one
+        files.writePiece(pieceIndex, data);
+        pieces.markHave(pieceIndex);
+        System.out.println("[" + myId + "] stored piece " + pieceIndex +
+                           " (" + data.length + " bytes)");
+
+        // Tell *this neighbor* we now have that piece (you’ll broadcast later)
+        sendHave(pieceIndex);
+
+        // Request the next needed piece (simple linear strategy for now)
+        if (neighborBitfield != null && !amChokedByNeighbor) {
+            int next = pieces.nextNeededFrom(neighborBitfield);
+            if (next >= 0) sendRequest(next);
+            // else: we're done with this neighbor for now
+        }
+    } catch (IOException ignored) {}
+}
 }

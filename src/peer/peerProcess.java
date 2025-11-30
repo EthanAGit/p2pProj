@@ -5,6 +5,9 @@ import peer.net.Server;
 import peer.net.Client;
 import peer.net.Connection;
 import java.util.List;
+import peer.store.FileManager;
+import peer.piece.PieceManager;
+
 public class peerProcess {
     public static void main(String[] args) throws Exception {   // <-- add this
         if (args.length != 1) {
@@ -18,11 +21,13 @@ public class peerProcess {
         Config cfg = Config.load();
         Config.Peer me = cfg.getPeerById(peerId);
         List<Config.Peer> earlier = cfg.getPeersBefore(peerId);
+        FileManager files = new FileManager(peerId, cfg);
+        PieceManager pieces = new PieceManager(cfg.numPieces, me.hasFile);
 
         // 1) Start the server in its own thread (so it accepts while we also connect out)
         Server server = new Server(me.port, socket -> {
             System.out.println("ACCEPT from " + socket.getRemoteSocketAddress());
-            new Connection(socket, peerId).start();
+            new Connection(socket, peerId, files, pieces).start();
         });
         Thread serverThread = new Thread(server, "Server-" + peerId);
         serverThread.start();
@@ -33,7 +38,7 @@ public class peerProcess {
             try {
                 var s = client.connect(p.host, p.port);
                 System.out.println("CONNECT to " + p.id + " @" + p.host + ":" + p.port);
-                new Connection(s, peerId).start();
+                new Connection(s, peerId, files, pieces).start();
             } catch (Exception e) {
                 e.printStackTrace();
             }
