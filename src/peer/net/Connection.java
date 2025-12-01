@@ -28,6 +28,8 @@ public class Connection implements Runnable {
     private int sentUnchokes = 0;
     private int recvChokes = 0;
     private int recvUnchokes = 0;
+    private static final java.util.Set<Integer> peersWithFullFile =
+    java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
     private static final List<Connection> ALL =
             new CopyOnWriteArrayList<>();
 
@@ -368,6 +370,30 @@ public class Connection implements Runnable {
         bb.putInt(pieceIndex);
         sendFrame(MSG_REQUEST, bb.array());
     }
+    public static boolean allPeersComplete() {
+    // If we (this process) don't have the file yet, global completion can't be true.
+    if (sharedPieces == null || !sharedPieces.isComplete()) {
+        return false;
+    }
+
+    // Check each active neighbor connection
+    for (Connection c : ALL) {
+        byte[] bf = c.neighborBitfield;
+        if (bf == null) {
+            // haven't even seen their bitfield yet → can't claim global completion
+            return false;
+        }
+        if (!sharedPieces.bitfieldIsComplete(bf)) {
+            // neighbor still missing at least one piece
+            return false;
+        }
+    }
+
+    // We have the file; everyone we’re connected to *appears* to have the full file too.
+    return true;
+}
+
+
 
     /** piece(index + data) — payload is 4-byte index followed by raw piece bytes */
     public void sendPiece(int pieceIndex, byte[] data) throws IOException {
@@ -476,12 +502,15 @@ public class Connection implements Runnable {
     }
 
     private void onBitfield(byte[] bitfield) {
-        neighborBitfield = bitfield;
-        try {
-            maybeSendInterest();          // decide interested/not interested
-            if (!amChokedByNeighbor) maybeRequestNext();
-        } catch (IOException ignored) {}
+    neighborBitfield = bitfield;
+    if (pieces.bitfieldIsComplete(bitfield)) {
+        Connection.peersWithFullFile.add(remotePeerId);
     }
+    try {
+        maybeSendInterest();
+        if (!amChokedByNeighbor) maybeRequestNext();
+    } catch (IOException ignored) {}
+}
 
     private void onRequest(int pieceIndex) {
         // We only upload to neighbors we are NOT choking

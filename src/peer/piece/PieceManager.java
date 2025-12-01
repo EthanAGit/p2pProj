@@ -47,6 +47,15 @@ public class PieceManager {
         }
         return true;
     }
+    public synchronized boolean bitfieldIsComplete(byte[] bits) {
+    if (bits == null) return false;
+    for (int i = 0; i < numPieces; i++) {
+        if (!bit(bits, i)) {
+            return false;
+        }
+    }
+    return true;
+}
     private void trimExtraBits() {
         int extra = (myBits.length * 8) - numPieces;
         if (extra > 0) {
