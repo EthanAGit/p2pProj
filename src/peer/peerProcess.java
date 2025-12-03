@@ -21,6 +21,7 @@ public class peerProcess {
         System.out.println("Peer " + peerId + " starting...");
         System.out.println("Working dir is where Common.cfg / PeerInfo.cfg live.");
 
+        // -------- load config & my row ----------
         Config cfg = Config.load();
         Config.Peer me = cfg.getPeerById(peerId);
         if (me == null) {
@@ -28,12 +29,18 @@ public class peerProcess {
             System.exit(1);
         }
 
+        // all peers that appear before me in PeerInfo.cfg (for outgoing connects)
         List<Config.Peer> earlier = cfg.getPeersBefore(peerId);
 
-        FileManager files = new FileManager(peerId, cfg);
+        // -------- file + piece managers ----------
+        FileManager files   = new FileManager(peerId, cfg);
         PieceManager pieces = new PieceManager(cfg.numPieces, me.hasFile);
 
-        // >>> IMPORTANT: start the global choking/unchoking scheduler <<<
+        // -------- logger ----------
+        PeerLogger logger = new PeerLogger(peerId);
+        Connection.setLogger(logger);   // make it visible to all Connection instances
+
+        // -------- global schedulers (choke/unchoke) ----------
         Connection.initSchedulers(
                 cfg.numberOfPreferredNeighbors,
                 cfg.unchokingInterval,
@@ -41,30 +48,55 @@ public class peerProcess {
                 pieces
         );
 
+        // -------- server: accepts incoming peers ----------
         Server server = new Server(me.port, socket -> {
             System.out.println("ACCEPT from " + socket.getRemoteSocketAddress());
-            new Connection(socket, peerId, files, pieces).start();
+            // true = incoming side of the TCP connection
+            new Connection(socket, peerId, files, pieces, true).start();
         });
         Thread serverThread = new Thread(server, "Server-" + peerId);
         serverThread.start();
 
+        // -------- client: connect to earlier peers ----------
         Client client = new Client();
         for (Config.Peer p : earlier) {
             try {
                 var s = client.connect(p.host, p.port);
                 System.out.println("CONNECT to " + p.id + " @" + p.host + ":" + p.port);
-                new Connection(s, peerId, files, pieces).start();
+                // false = outgoing side of the TCP connection
+                new Connection(s, peerId, files, pieces, false).start();
             } catch (Exception e) {
                 System.err.println("Failed to connect to peer " + p.id + ": " + e);
                 e.printStackTrace();
             }
         }
 
+        // -------- completion watcher (global termination) ----------
+        Thread watcher = new Thread(() -> {
+            try {
+                while (true) {
+                    Thread.sleep(3000);
+
+                    if (pieces.isComplete()
+                            && Connection.allPeersComplete()) {
+                        System.out.println("Peer " + peerId + " sees global completion; exiting.");
+                        System.exit(0); // triggers shutdown hook
+                    }
+                }
+            } catch (InterruptedException ignored) {
+            }
+        }, "CompletionWatcher-" + peerId);
+        watcher.setDaemon(true);
+        watcher.start();
+
+        // -------- shutdown hook ----------
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Peer " + peerId + " shutting down.");
             server.stop();
+            logger.close();
         }));
 
+        // keep main thread alive
         Thread.currentThread().join();
     }
 }

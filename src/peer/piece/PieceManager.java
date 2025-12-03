@@ -63,4 +63,11 @@ public class PieceManager {
             myBits[myBits.length - 1] &= mask;
         }
     }
+       public synchronized int numHave() {
+        int count = 0;
+        for (int i = 0; i < numPieces; i++) {
+            if (have(i)) count++;
+        }
+        return count;
+    }
 }

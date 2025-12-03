@@ -17,13 +17,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import peer.store.FileManager;
 import peer.piece.PieceManager;
-
+import peer.PeerLogger;
 public class Connection implements Runnable {
 
     // ===================== static, per-peer-process state =====================
 
     // All live connections in this JVM (i.e., this peer process)
     // stats just for debugging scheduler behaviour
+    private static PeerLogger logger;
+
     private int sentChokes = 0;
     private int sentUnchokes = 0;
     private int recvChokes = 0;
@@ -46,6 +48,9 @@ public class Connection implements Runnable {
     private static PieceManager sharedPieces;
 
     /** Called once from peerProcess after Config.load(). */
+    public static void setLogger(PeerLogger l) {
+        logger = l;
+    }
     public static synchronized void initSchedulers(
             int numPreferredNeighbors,
             int unchokingIntervalSeconds,
@@ -151,7 +156,14 @@ public class Connection implements Runnable {
             c.setChoked(!shouldBeUnchoked);
         }
 
-        // (If you implement logging, "Change of preferred neighbors" goes here.)
+                if (logger != null) {
+            java.util.List<Integer> ids = new java.util.ArrayList<>();
+            for (Connection c : preferred) {
+                if (c.remotePeerId >= 0) ids.add(c.remotePeerId);
+            }
+            logger.logPreferredNeighbors(ids);
+        }
+
     }
 
     // Choose an optimistically unchoked neighbor among choked-but-interested ones
@@ -184,6 +196,9 @@ public class Connection implements Runnable {
         }
 
         // (If you implement logging, "Change of optimistically unchoked neighbor" goes here.)
+        if (logger != null && chosen.remotePeerId >= 0) {
+            logger.logOptimisticNeighbor(chosen.remotePeerId);
+        }
     }
 
     // ===================== instance state & constructor =====================
@@ -192,6 +207,7 @@ public class Connection implements Runnable {
     private final String myId;
     private final FileManager files;
     private final PieceManager pieces;
+     private final boolean incoming;      // NEW: did we accept this socket?
 
     private DataInputStream din;
     private DataOutputStream dout;
@@ -206,14 +222,18 @@ public class Connection implements Runnable {
     private volatile long bytesFromNeighborThisInterval = 0L;
     private int remotePeerId = -1;                       // set after handshake
 
-    public Connection(Socket sock, String myId, FileManager files, PieceManager pieces) {
+        public Connection(Socket sock, String myId,
+                      FileManager files, PieceManager pieces,
+                      boolean incoming) {
         this.sock = sock;
         this.myId = myId;
         this.files = files;
         this.pieces = pieces;
+        this.incoming = incoming;
 
-        ALL.add(this);
+        ALL.add(this);   // if you already had this, keep it
     }
+
 
     public void start() {
         new Thread(this, "Conn-" + myId + "->" + sock.getRemoteSocketAddress()).start();
@@ -292,7 +312,13 @@ public class Connection implements Runnable {
             sendHandshake(out, my);
             int remote = recvHandshake(in);
             this.remotePeerId = remote;
-
+              if (logger != null && remotePeerId >= 0) {
+                if (incoming) {
+                    logger.logConnectedFrom(remotePeerId);
+                } else {
+                    logger.logConnectTo(remotePeerId);
+                }
+            }
             System.out.println("[" + myId + "] handshake OK with peer " + remote +
                                " via " + sock.getRemoteSocketAddress());
 
@@ -469,11 +495,18 @@ public class Connection implements Runnable {
         recvChokes++;
         amChokedByNeighbor = true;
         awaitingPiece = false;  // any in-flight request won’t arrive
+        if (logger != null && remotePeerId >= 0) {
+            logger.logChokedBy(remotePeerId);
+        }
     }
+    
 
     private void onUnchoke() {
         recvUnchokes++;
         amChokedByNeighbor = false;
+        if (logger != null && remotePeerId >= 0) {
+            logger.logUnchokedBy(remotePeerId);
+        }
         try {
             maybeSendInterest();
             maybeRequestNext();
@@ -482,6 +515,9 @@ public class Connection implements Runnable {
 
     private void onInterested() {
     neighborInterestedInMe = true;
+     if (logger != null && remotePeerId >= 0) {
+            logger.logReceiveInterested(remotePeerId);
+        }
     // Immediately unchoke this peer so they can start downloading.
     // The scheduler can still re-choke / re-unchoke later.
     setChoked(false);
@@ -489,6 +525,9 @@ public class Connection implements Runnable {
 
     private void onNotInterested() {
         neighborInterestedInMe = false;
+         if (logger != null && remotePeerId >= 0) {
+            logger.logReceiveNotInterested(remotePeerId);
+        }
     }
 
     private void onHave(int pieceIndex) {
