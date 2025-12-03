@@ -16,7 +16,7 @@ public class FileManager {
         this.fileSize = cfg.fileSize;
         this.pieceSize = cfg.pieceSize;
         this.numPieces = cfg.numPieces;
-        this.dir = Paths.get(peerId);
+        this.dir = Paths.get("peer_" + peerId);
         Files.createDirectories(dir);
         this.filePath = dir.resolve(cfg.fileName);
 
