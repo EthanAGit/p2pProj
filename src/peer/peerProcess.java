@@ -75,7 +75,7 @@ public class peerProcess {
         Thread watcher = new Thread(() -> {
             try {
                 while (true) {
-                    Thread.sleep(3000);
+                    Thread.sleep(300000);
 
                     if (pieces.isComplete()
                             && Connection.allPeersComplete()) {

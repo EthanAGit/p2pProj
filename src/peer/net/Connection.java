@@ -303,7 +303,7 @@ public class Connection implements Runnable {
     public void run() {
         try (var in = sock.getInputStream(); var out = sock.getOutputStream()) {
             sock.setTcpNoDelay(true);
-            sock.setSoTimeout(15000);
+            sock.setSoTimeout(400000);
 
             din = new DataInputStream(in);
             dout = new DataOutputStream(out);
@@ -531,6 +531,9 @@ public class Connection implements Runnable {
     }
 
     private void onHave(int pieceIndex) {
+         if (logger != null && remotePeerId >= 0) {
+            logger.logReceiveHave(remotePeerId, pieceIndex);
+        }
         if (neighborBitfield != null) setBit(neighborBitfield, pieceIndex);
         if (!pieces.have(pieceIndex)) {
             try {
@@ -569,6 +572,13 @@ public class Connection implements Runnable {
             System.out.println("[" + myId + "] stored piece " + pieceIndex +
                                " (" + data.length + " bytes)");
 
+            if (logger != null && remotePeerId >= 0) {
+                int haveCount = pieces.numHave(); // add this helper to PieceManager if needed
+                logger.logDownloadedPiece(remotePeerId, pieceIndex, haveCount);
+                if (pieces.isComplete()) {
+                    logger.logDownloadComplete();
+                }
+            }
             sendHave(pieceIndex);         // tell this neighbor we now have it
 
             awaitingPiece = false;
