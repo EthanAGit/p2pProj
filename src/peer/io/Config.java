@@ -53,7 +53,7 @@ public final class Config {
     /** Load from a specific directory (handy for tests). */
     public static Config loadFrom(Path dir) throws IOException {
         Path commonPath = dir.resolve("Common.cfg");
-        Path peerInfoPath = dir.resolve("PeerInfo.cfg");
+        Path peerInfoPath = dir.resolve("src/peer/io/PeerInfo1.cfg");
 
         // ---- Parse Common.cfg
         Integer k = null, p = null, m = null, piece = null;

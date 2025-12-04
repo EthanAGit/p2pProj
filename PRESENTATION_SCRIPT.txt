@@ -1,0 +1,252 @@
+P2P FILE SHARING PROJECT - PRESENTATION SCRIPT (5-8 MINUTES)
+
+Total Time: 6-7 minutes
+Format: Split equally between 2 speakers
+
+================================================================================
+
+SPEAKER 1: INTRODUCTION & ARCHITECTURE (3-3.5 minutes)
+
+OPENING (30 seconds)
+
+[OPEN: Title slide or just share screen ready]
+
+Hello everyone. Today we're presenting our P2P file sharing application, similar to BitTorrent. This project implements the core peer-to-peer protocol including handshaking, piece exchange, and the choking/unchoking mechanism. I'll cover the architecture and protocol, then [Partner Name] will demonstrate it live.
+
+PROJECT OVERVIEW (45 seconds)
+
+Our system allows multiple peers to share files in a distributed manner. Key features include:
+
+First, we have TCP-based reliable communication between peers.
+
+Second, BitTorrent-style piece-by-piece file transfer.
+
+Third, a choking/unchoking mechanism to optimize bandwidth.
+
+And fourth, support for multiple simultaneous peer connections.
+
+We implemented this in Java with about 7 core classes totaling around 1500 lines of code.
+
+ARCHITECTURE WALKTHROUGH (1 minute)
+
+[OPEN: Terminal with 'ls -la src/peer/' or VS Code showing project structure]
+
+Let me show you our code structure:
+
+Config.java parses Common.cfg and PeerInfo.cfg to configure peers.
+
+peerProcess.java is the main entry point, it starts the server and connects to earlier peers.
+
+Server.java listens for incoming peer connections.
+
+Client.java initiates outgoing connections to peers.
+
+Connection.java handles the protocol including handshake, bitfield exchange, and message handling.
+
+PieceManager.java tracks which pieces we have and need.
+
+FileManager.java reads and writes file pieces to disk.
+
+The architecture follows a symmetric design where each peer acts as both client and server.
+
+PROTOCOL FLOW (45 seconds)
+
+[OPEN: src/peer/net/Connection.java or show protocol diagram if prepared]
+
+Here's how peers communicate:
+
+Step one is the handshake. This is a 32-byte message with header 'P2PFILESHARINGPROJ' plus the peer ID.
+
+Step two is bitfield exchange. Peers share which pieces they have.
+
+Step three is interested or not interested messages. Peers express interest in pieces they need.
+
+Step four is choking and unchoking for bandwidth management. Each peer unchokes k preferred neighbors every p seconds, plus 1 optimistically unchoked neighbor.
+
+Step five is request and piece messages. This is where the actual file piece transfer happens.
+
+All messages follow a length-prefixed format: 4-byte length, 1-byte type, and variable payload.
+
+TRANSITION TO DEMO (15 seconds)
+
+Now I'll hand it over to [Partner Name] to demonstrate the system in action.
+
+================================================================================
+
+SPEAKER 2: LIVE DEMO & CONCLUSION (3-3.5 minutes)
+
+DEMO SETUP (30 seconds)
+
+[Share screen showing terminal]
+
+Thanks. I'm going to demonstrate our P2P system with 3 peers running on localhost:
+
+Peer 1001 has the complete file. It's Citgo.mp4 which is 74MB.
+
+Peers 1002 and 1003 will download it.
+
+Each peer uses a different port to simulate a distributed network.
+
+[Show PeerInfo1.cfg file briefly]
+
+Here's our configuration showing the 3 peers with localhost addresses and different ports.
+
+RUNNING THE DEMO (1.5 minutes)
+
+[Terminal 1]
+
+First, I'll start Peer 1001, which has the file:
+
+make compile
+
+java -cp out peer.peerProcess 1001
+
+You can see it starts and begins listening on port 6001.
+
+[Terminal 2]
+
+Now Peer 1002:
+
+java -cp out peer.peerProcess 1002
+
+Notice it immediately connects to Peer 1001. You can see the handshake, bitfield exchange, and then piece downloads starting.
+
+[Terminal 3]
+
+And Peer 1003:
+
+java -cp out peer.peerProcess 1003
+
+Now we have 3 peers connected in a mesh. Watch as pieces transfer.
+
+[Show log file]
+
+tail -f log_peer_1002.log
+
+The logs show several things happening:
+
+TCP connections being established.
+
+Preferred neighbors being selected.
+
+Pieces being downloaded one by one.
+
+And the download rate accelerating as peers share pieces with each other.
+
+KEY FEATURES HIGHLIGHT (45 seconds)
+
+[Show peer_1002 directory]
+
+ls -lh peer_1002/
+
+You can see the file appearing in peer_1002's directory. The file is being assembled piece by piece.
+
+[Show choking/unchoking in logs]
+
+Notice the choking and unchoking mechanism at work. Every 5 seconds peers re-evaluate their preferred neighbors based on download rates. This is the core BitTorrent optimization.
+
+[Show completion]
+
+And there, Peer 1002 has downloaded the complete file! The system will terminate once all peers have the complete file.
+
+TECHNICAL CHALLENGES & SOLUTIONS (30 seconds)
+
+Some challenges we faced:
+
+First was bitfield encoding. We had to pack bits efficiently to represent thousands of pieces.
+
+Second was thread synchronization. Managing concurrent connections required careful locking.
+
+Third was network configuration. For this demo we used localhost, but the system works across networks with proper firewall configuration.
+
+We tested extensively with both localhost and UF VPN connections.
+
+CLOSING (15 seconds)
+
+That concludes our demonstration. Our P2P file sharing system successfully implements the BitTorrent protocol with choking/unchoking, piece exchange, and concurrent peer connections. We're happy to answer any questions.
+
+================================================================================
+
+BACKUP: Q&A PREPARATION
+
+LIKELY QUESTIONS:
+
+Question: How do you handle piece selection?
+
+Answer: We use random selection as specified in the project requirements, rather than BitTorrent's 'rarest first' strategy. This simplifies implementation while still demonstrating the core protocol.
+
+Question: What happens if a peer disconnects mid-transfer?
+
+Answer: The Connection class handles this gracefully. Other peers continue operating, and the disconnected peer can rejoin and resume downloading from where it left off using its saved bitfield.
+
+Question: How do you prevent corruption?
+
+Answer: Each piece has a fixed size defined in Common.cfg. We write pieces to disk immediately and track them in the bitfield. The project spec doesn't require checksums, but that would be a natural extension.
+
+Question: Did you test with different network configurations?
+
+Answer: Yes, we tested localhost, same WiFi network, and UF VPN. The localhost demo is most reliable for presentation, but the code works across networks with proper firewall rules.
+
+Question: How does the optimistic unchoking help?
+
+Answer: It allows peers to discover faster connections they might have missed. Every m seconds, we randomly unchoke a choked peer to test their upload rate, potentially finding better partners.
+
+================================================================================
+
+TIPS FOR DELIVERY
+
+SPEAKER 1:
+
+Keep architecture explanation high-level, don't dive too deep into code.
+
+Use the screen share to show structure, not to read code line by line.
+
+Practice the protocol flow explanation since it's the most technical part.
+
+SPEAKER 2:
+
+Have terminals pre-arranged and ready to go.
+
+Pre-compile the code to save time.
+
+If demo fails, have backup screenshots or video.
+
+Keep energy up during the demo and narrate what's happening.
+
+Have the log file ready to tail -f for live updates.
+
+BOTH:
+
+Time yourselves practicing and aim for 6 minutes to leave buffer.
+
+Have a timer visible during presentation.
+
+Be ready to speed up or slow down based on time remaining.
+
+Make eye contact with audience, not just the screen.
+
+Smile and be confident!
+
+================================================================================
+
+PRE-DEMO CHECKLIST
+
+Code compiled: make compile
+
+PeerInfo1.cfg configured for localhost
+
+peer_1001 directory exists with Citgo.mp4 file
+
+peer_1002 and peer_1003 directories cleared
+
+Old log files deleted
+
+3 terminal windows open and positioned
+
+Screen sharing tested
+
+Backup plan ready (screenshots/video)
+
+Both speakers practiced their sections
+
+Timer ready

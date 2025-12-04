@@ -91,6 +91,23 @@ public class PeerLogger {
         log("Peer [" + peerId + "] has downloaded the complete file.");
     }
 
+    // ----- sending messages -----
+    public void logSendInterested(int otherId) {
+        log("Peer [" + peerId + "] sent the 'interested' message to [" + otherId + "].");
+    }
+
+    public void logSendNotInterested(int otherId) {
+        log("Peer [" + peerId + "] sent the 'not interested' message to [" + otherId + "].");
+    }
+
+    public void logSendRequest(int otherId, int pieceIdx) {
+        log("Peer [" + peerId + "] sent the 'request' message to [" + otherId + "] for piece [" + pieceIdx + "].");
+    }
+
+    public void logSendPiece(int otherId, int pieceIdx) {
+        log("Peer [" + peerId + "] sent the 'piece' message to [" + otherId + "] for piece [" + pieceIdx + "].");
+    }
+
     public void close() {
         out.close();
     }

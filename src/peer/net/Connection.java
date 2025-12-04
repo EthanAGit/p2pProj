@@ -375,8 +375,18 @@ public class Connection implements Runnable {
 
     public void sendChoke()         throws IOException { sendFrame(MSG_CHOKE, null); }
     public void sendUnchoke()       throws IOException { sendFrame(MSG_UNCHOKE, null); }
-    public void sendInterested()    throws IOException { sendFrame(MSG_INTERESTED, null); }
-    public void sendNotInterested() throws IOException { sendFrame(MSG_NOT_INTERESTED, null); }
+    public void sendInterested()    throws IOException {
+        sendFrame(MSG_INTERESTED, null);
+        if (logger != null && remotePeerId >= 0) {
+            logger.logSendInterested(remotePeerId);
+        }
+    }
+    public void sendNotInterested() throws IOException {
+        sendFrame(MSG_NOT_INTERESTED, null);
+        if (logger != null && remotePeerId >= 0) {
+            logger.logSendNotInterested(remotePeerId);
+        }
+    }
 
     /** have(index) — payload is a 4-byte piece index (big-endian) */
     public void sendHave(int pieceIndex) throws IOException {
@@ -395,6 +405,9 @@ public class Connection implements Runnable {
         ByteBuffer bb = ByteBuffer.allocate(4);
         bb.putInt(pieceIndex);
         sendFrame(MSG_REQUEST, bb.array());
+        if (logger != null && remotePeerId >= 0) {
+            logger.logSendRequest(remotePeerId, pieceIndex);
+        }
     }
     public static boolean allPeersComplete() {
     // If we (this process) don't have the file yet, global completion can't be true.
@@ -427,6 +440,9 @@ public class Connection implements Runnable {
         bb.putInt(pieceIndex);
         bb.put(data);
         sendFrame(MSG_PIECE, bb.array());
+        if (logger != null && remotePeerId >= 0) {
+            logger.logSendPiece(remotePeerId, pieceIndex);
+        }
     }
 
     // Decide interest based on neighbor's bitfield
