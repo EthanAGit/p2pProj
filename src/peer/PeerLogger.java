@@ -64,6 +64,14 @@ public class PeerLogger {
         log("Peer [" + peerId + "] is choked by [" + otherId + "].");
     }
 
+    public void logChokingNeighbor(int otherId) {
+        log("Peer [" + peerId + "] choking neighbor [" + otherId + "].");
+    }
+
+    public void logUnchokingNeighbor(int otherId) {
+        log("Peer [" + peerId + "] unchoking neighbor [" + otherId + "].");
+    }
+
     // ----- message reception -----
     public void logReceiveHave(int otherId, int pieceIdx) {
         log("Peer [" + peerId + "] received the 'have' message from [" +
@@ -89,6 +97,10 @@ public class PeerLogger {
 
     public void logDownloadComplete() {
         log("Peer [" + peerId + "] has downloaded the complete file.");
+    }
+
+    public void logAllPeersComplete() {
+        log("Peer [" + peerId + "] has verified all peers have the complete file.");
     }
 
     // ----- sending messages -----

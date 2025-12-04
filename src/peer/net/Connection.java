@@ -373,8 +373,18 @@ public class Connection implements Runnable {
         dout.flush();
     }
 
-    public void sendChoke()         throws IOException { sendFrame(MSG_CHOKE, null); }
-    public void sendUnchoke()       throws IOException { sendFrame(MSG_UNCHOKE, null); }
+    public void sendChoke()         throws IOException {
+        sendFrame(MSG_CHOKE, null);
+        if (logger != null && remotePeerId >= 0) {
+            logger.logChokingNeighbor(remotePeerId);
+        }
+    }
+    public void sendUnchoke()       throws IOException {
+        sendFrame(MSG_UNCHOKE, null);
+        if (logger != null && remotePeerId >= 0) {
+            logger.logUnchokingNeighbor(remotePeerId);
+        }
+    }
     public void sendInterested()    throws IOException {
         sendFrame(MSG_INTERESTED, null);
         if (logger != null && remotePeerId >= 0) {

@@ -79,6 +79,7 @@ public class peerProcess {
 
                     if (pieces.isComplete()
                             && Connection.allPeersComplete()) {
+                        logger.logAllPeersComplete();
                         System.out.println("Peer " + peerId + " sees global completion; exiting.");
                         System.exit(0); // triggers shutdown hook
                     }
